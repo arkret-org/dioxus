@@ -553,7 +553,18 @@ impl<Args: 'static, Ret: 'static> Callback<Args, Ret> {
     #[doc(hidden)]
     /// This should only be used by the `rsx!` macro.
     pub fn __point_to(&mut self, other: &Self) {
-        self.callback.point_to(other.callback).unwrap();
+        // cokret patch (fork of v0.7.9): upstream calls `.unwrap()` here, which
+        // aborts the entire wasm instance (white screen) when `other.callback`'s
+        // owner scope was already reclaimed in the same frame — surfacing as
+        // `Dropped(ValueDroppedError)` during rsx diff of an `Option<EventHandler>`
+        // prop. Re-pointing only reuses the stable handle for this frame; the real
+        // callback is still owned by `other`, so a failure here is non-fatal.
+        // Degrade gracefully instead of panicking.
+        if self.callback.point_to(other.callback).is_err() {
+            tracing::trace!(
+                "Callback::__point_to skipped: source callback already dropped"
+            );
+        }
     }
 }
 
